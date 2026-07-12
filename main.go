@@ -17,6 +17,8 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	DB             *database.Queries
+	platform       string
 }
 
 type chirpRequest struct {
@@ -81,11 +83,24 @@ func (cfg *apiConfig) viewMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
+
+	if cfg.platform != "dev" {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Reset is only allowed in dev environment"))
+		return
+	}
+
 	cfg.fileserverHits.Store(0)
+
+	err := cfg.DB.DeleteUsers(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "counldint delete users")
+		return
+	}
 
 	w.Header().Set("Content-type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Hits Back to 0"))
+	w.Write([]byte("Hits Back to 0 and database cleared"))
 }
 
 func (cfg *apiConfig) checkChirp(w http.ResponseWriter, r *http.Request) {
@@ -118,12 +133,52 @@ func (cfg *apiConfig) checkChirp(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email string `json: "email"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldnt decode request")
+	}
+	ctx := r.Context()
+	user, err := cfg.DB.CreateUser(ctx, params.Email)
+	if err != nil {
+		log.Fatal("User could not be created", err)
+	}
+
+	type Response struct {
+		ID        string `json: "id"`
+		CreatedAt string `json: "created_at"`
+		UpdatedAt string `json: "updated_at"`
+		Email     string `json: "email"`
+	}
+
+	respondWithJson(w, http.StatusCreated, Response{
+		ID:        user.ID.String(),
+		CreatedAt: user.CreatedAt.Format(http.TimeFormat),
+		UpdatedAt: user.UpdatedAt.Format(http.TimeFormat),
+		Email:     user.Email,
+	})
+
+}
+
 func main() {
 	godotenv.Load()
 	dbUrl := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
 	db, err := sql.Open("postgres", dbUrl)
+	if err != nil {
+		log.Fatal("could not connect to database", err)
+	}
 	dbQueries := database.New(db)
-	apiCfg := &apiConfig{}
+	apiCfg := &apiConfig{
+		DB:       dbQueries,
+		platform: platform,
+	}
 	mux := http.NewServeMux()
 
 	server := &http.Server{
@@ -140,11 +195,12 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.viewMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 	mux.HandleFunc("POST /api/validate_chirp", apiCfg.checkChirp)
+	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServerHandler))
 
 	// start a server
 	log.Println("Server starting on http://localhost:8080")
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 
 	if err != nil {
 		log.Fatal(err)
