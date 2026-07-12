@@ -1,12 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/JaydinCodes/chirpy-boot/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
@@ -113,6 +119,10 @@ func (cfg *apiConfig) checkChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
+	dbUrl := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbUrl)
+	dbQueries := database.New(db)
 	apiCfg := &apiConfig{}
 	mux := http.NewServeMux()
 
