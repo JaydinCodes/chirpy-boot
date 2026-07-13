@@ -9,8 +9,10 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/JaydinCodes/chirpy-boot/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -103,34 +105,62 @@ func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hits Back to 0 and database cleared"))
 }
 
-func (cfg *apiConfig) checkChirp(w http.ResponseWriter, r *http.Request) {
-	var req chirpRequest
+func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body    string    `json: "body"`
+		User_ID uuid.UUID `json: "user_id"`
+	}
 
-	err := json.NewDecoder(r.Body).Decode(&req)
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Something went wrong")
+		respondWithError(w, http.StatusBadRequest, "Couldnt decode request")
 		return
 	}
 
-	if len(req.Body) > 140 {
+	if len(params.Body) > 140 {
 		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
 		return
 	}
 
-	words := strings.Fields(req.Body)
+	words := strings.Fields(params.Body)
 	for i, word := range words {
 		switch strings.ToLower(word) {
 		case "kerfuffle", "sharbert", "fornax":
 			words[i] = "****"
 		}
 	}
+	cleanedBody := strings.Join(words, " ")
 
-	cleaned := strings.Join(words, " ")
-
-	respondWithJson(w, http.StatusOK, cleanedResponse{
-		CleanedBody: cleaned,
+	ctx := r.Context()
+	chirp, err := cfg.DB.CreateChirp(ctx, database.CreateChirpParams{
+		Body:   cleanedBody,
+		UserID: params.User_ID,
 	})
 
+	if err != nil {
+		respondWithError(
+			w, http.StatusInternalServerError, "couldnt create chirp",
+		)
+		return
+	}
+
+	type response struct {
+		ID        string `json: id"`
+		CreatedAt string `json: "created_at"`
+		UpdatedAt string `json: "updated_at"`
+		Body      string `json: "body"`
+		UserID    string `json: user_id`
+	}
+
+	respondWithJson(w, http.StatusCreated, response{
+		ID:        chirp.ID.String(),
+		CreatedAt: chirp.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: chirp.UpdatedAt.Format(time.RFC3339),
+		Body:      chirp.Body,
+		UserID:    chirp.UserID.String(),
+	})
 }
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
@@ -151,16 +181,16 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type Response struct {
-		ID        string `json: "id"`
+		id        string `json: "id"`
 		CreatedAt string `json: "created_at"`
 		UpdatedAt string `json: "updated_at"`
 		Email     string `json: "email"`
 	}
 
 	respondWithJson(w, http.StatusCreated, Response{
-		ID:        user.ID.String(),
-		CreatedAt: user.CreatedAt.Format(http.TimeFormat),
-		UpdatedAt: user.UpdatedAt.Format(http.TimeFormat),
+		id:        user.ID.String(),
+		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: user.UpdatedAt.Format(time.RFC3339),
 		Email:     user.Email,
 	})
 
@@ -194,7 +224,7 @@ func main() {
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.viewMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
-	mux.HandleFunc("POST /api/validate_chirp", apiCfg.checkChirp)
+	mux.HandleFunc("POST /api/chirp", apiCfg.checkChirp)
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServerHandler))
 
