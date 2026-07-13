@@ -161,7 +161,7 @@ func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	dbChirps, err := cfg.DB.GetChirps(r.Context())
 
 	if err != nil {
@@ -190,6 +190,43 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJson(w, http.StatusOK, chirps)
+
+}
+
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+	chirpIDString := r.PathValue("chirpID")
+	chirpID, err := uuid.Parse(chirpIDString)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+		return
+	}
+	dbChirp, err := cfg.DB.GetChirp(r.Context(), chirpID)
+	if err != nil {
+		// If the query successfully ran but found no rows, return a 404
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+			return
+		}
+		// For any other database error, return a 500
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get chirp")
+		return // ADDED: Critical missing return statement
+	}
+
+	type response struct {
+		ID        string `json:"id"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		Body      string `json:"body"`
+		UserID    string `json:"user_id"`
+	}
+
+	respondWithJson(w, http.StatusOK, response{
+		ID:        dbChirp.ID.String(),
+		CreatedAt: dbChirp.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: dbChirp.UpdatedAt.Format(time.RFC3339),
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID.String(),
+	})
 
 }
 
@@ -259,7 +296,8 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.viewMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createChirp) // FIXED typo (chirps)
-	mux.HandleFunc("GET /api/chirps", apiCfg.getChirp)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServerHandler))
 

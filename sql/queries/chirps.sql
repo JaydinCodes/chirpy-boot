@@ -22,3 +22,6 @@ delete from chirpy;
 -- name: GetChirps :many
 select * FROM chirpy
 ORDER BY created_at ASC;
+
+-- name: GetChirp :one
+select * from chirpy WHERE id = $1;
