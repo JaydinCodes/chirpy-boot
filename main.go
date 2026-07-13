@@ -96,7 +96,7 @@ func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
 
 	err := cfg.DB.DeleteUsers(r.Context())
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "counldint delete users")
+		respondWithError(w, http.StatusInternalServerError, "couldn't delete users")
 		return
 	}
 
@@ -107,15 +107,15 @@ func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body    string    `json: "body"`
-		User_ID uuid.UUID `json: "user_id"`
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Couldnt decode request")
+		respondWithError(w, http.StatusBadRequest, "Couldn't decode request")
 		return
 	}
 
@@ -136,22 +136,20 @@ func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	chirp, err := cfg.DB.CreateChirp(ctx, database.CreateChirpParams{
 		Body:   cleanedBody,
-		UserID: params.User_ID,
+		UserID: params.UserID,
 	})
 
 	if err != nil {
-		respondWithError(
-			w, http.StatusInternalServerError, "couldnt create chirp",
-		)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp")
 		return
 	}
 
 	type response struct {
-		ID        string `json: id"`
-		CreatedAt string `json: "created_at"`
-		UpdatedAt string `json: "updated_at"`
-		Body      string `json: "body"`
-		UserID    string `json: user_id`
+		ID        string `json:"id"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		Body      string `json:"body"`
+		UserID    string `json:"user_id"`
 	}
 
 	respondWithJson(w, http.StatusCreated, response{
@@ -165,30 +163,34 @@ func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json: "email"`
+		Email string `json:"email"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Couldnt decode request")
+		respondWithError(w, http.StatusBadRequest, "Couldn't decode request")
+		return // ADDED missing return
 	}
+
 	ctx := r.Context()
 	user, err := cfg.DB.CreateUser(ctx, params.Email)
 	if err != nil {
-		log.Fatal("User could not be created", err)
+		// REPLACED log.Fatal with respondWithError
+		respondWithError(w, http.StatusInternalServerError, "User could not be created")
+		return
 	}
 
 	type Response struct {
-		id        string `json: "id"`
-		CreatedAt string `json: "created_at"`
-		UpdatedAt string `json: "updated_at"`
-		Email     string `json: "email"`
+		ID        string `json:"id"` // CAPITALIZED ID
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		Email     string `json:"email"`
 	}
 
 	respondWithJson(w, http.StatusCreated, Response{
-		id:        user.ID.String(),
+		ID:        user.ID.String(),
 		CreatedAt: user.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: user.UpdatedAt.Format(time.RFC3339),
 		Email:     user.Email,
@@ -224,7 +226,7 @@ func main() {
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.viewMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
-	mux.HandleFunc("POST /api/chirp", apiCfg.checkChirp)
+	mux.HandleFunc("POST /api/chirps", apiCfg.createChirp) // FIXED typo (chirps)
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServerHandler))
 
@@ -235,5 +237,4 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 }
