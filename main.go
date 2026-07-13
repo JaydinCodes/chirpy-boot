@@ -161,6 +161,38 @@ func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+	dbChirps, err := cfg.DB.GetChirps(r.Context())
+
+	if err != nil {
+		respondWithError(
+			w, http.StatusBadRequest, "couldnt get all chirps")
+		return
+	}
+
+	type response struct {
+		ID        string `json:"id"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		Body      string `json:"body"`
+		UserID    string `json:"user_id"`
+	}
+
+	chirps := []response{}
+	for _, dbChirp := range dbChirps {
+		chirps = append(chirps, response{
+			ID:        dbChirp.ID.String(),
+			CreatedAt: dbChirp.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: dbChirp.UpdatedAt.Format(time.RFC3339),
+			Body:      dbChirp.Body,
+			UserID:    dbChirp.UserID.String(),
+		})
+	}
+
+	respondWithJson(w, http.StatusOK, chirps)
+
+}
+
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Email string `json:"email"`
@@ -227,6 +259,7 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.viewMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 	mux.HandleFunc("POST /api/chirps", apiCfg.createChirp) // FIXED typo (chirps)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirp)
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServerHandler))
 
